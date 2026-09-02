@@ -4,46 +4,54 @@
 
 ## 使用
 
+全局安装 npm 包：
+
 ```bash
-npm install
-npm run build
-npm start
-npm run status
-npm run pause
+npm install -g gitlab-branch-batch-cleaner
 ```
 
-默认访问：
+启动后台服务：
+
+```bash
+gitlab-branch-batch-cleaner start
+```
+
+默认访问地址：
 
 ```text
 http://127.0.0.1:4178
 ```
 
-`npm start` 会在后台启动服务，重复执行会显示当前进程和访问地址。`npm run pause` 会暂停后台服务，`npm run stop` 是同一个停止动作的别名。
-
-查看当前版本：
+常用命令：
 
 ```bash
+gitlab-branch-batch-cleaner status
+gitlab-branch-batch-cleaner pause
+gitlab-branch-batch-cleaner stop
 gitlab-branch-batch-cleaner --version
 ```
 
+`gitlab-branch-batch-cleaner start` 会在后台启动服务，重复执行会显示当前进程和访问地址。`pause` 会暂停后台服务，`stop` 是同一个停止动作的别名。
+
 和 `lan-material-hub` 一样，后台启动时会检查 npm latest 版本；如果发现新版本，会在启动输出后提示执行 `npm install -g gitlab-branch-batch-cleaner@latest` 更新。网络失败或超时不会影响本地启动。
-
-开发模式：
-
-```bash
-npm run dev
-```
 
 如果需要前台运行服务：
 
 ```bash
-npm run serve
+gitlab-branch-batch-cleaner
 ```
 
 也可以指定端口并自动打开浏览器：
 
 ```bash
-npm start -- --port 4180 --open
+gitlab-branch-batch-cleaner --port 4180 --open
+```
+
+从源码开发时再安装依赖并启动开发模式：
+
+```bash
+npm install
+npm run dev
 ```
 
 后台启动的 PID 和日志默认保存在：
@@ -56,9 +64,9 @@ npm start -- --port 4180 --open
 可以通过环境变量改位置：
 
 ```bash
-GITLAB_BRANCH_BATCH_CLEANER_HOME=/tmp/gitlab-branch-batch-cleaner npm start
-GITLAB_BRANCH_BATCH_CLEANER_LOG_FILE=/tmp/gitlab-branch-batch-cleaner.log npm start
-GITLAB_BRANCH_BATCH_CLEANER_UPDATE_CHECK_TIMEOUT=800 npm start
+GITLAB_BRANCH_BATCH_CLEANER_HOME=/tmp/gitlab-branch-batch-cleaner gitlab-branch-batch-cleaner start
+GITLAB_BRANCH_BATCH_CLEANER_LOG_FILE=/tmp/gitlab-branch-batch-cleaner.log gitlab-branch-batch-cleaner start
+GITLAB_BRANCH_BATCH_CLEANER_UPDATE_CHECK_TIMEOUT=800 gitlab-branch-batch-cleaner start
 ```
 
 ## 配置
