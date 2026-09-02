@@ -4,7 +4,7 @@
   "description": "A local UI for listing and batch deleting GitLab remote branches.",
   "type": "module",
   "bin": {
-    "gitlab-branch-cleaner": "./bin/gitlab-branch-cleaner.js"
+    "gitlab-branch-cleaner": "bin/gitlab-branch-cleaner.js"
   },
   "files": [
     "bin",
@@ -29,7 +29,7 @@
     "vite",
     "react"
   ],
-  "author": "",
+  "author": "morecode",
   "license": "MIT",
   "dependencies": {
     "@vitejs/plugin-react": "^4.7.0",
@@ -46,5 +46,14 @@
   },
   "engines": {
     "node": ">=20"
-  }
+  },
+  "main": "index.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MoreCodeByTR/gitlab-branch-cleaner.git"
+  },
+  "bugs": {
+    "url": "https://github.com/MoreCodeByTR/gitlab-branch-cleaner/issues"
+  },
+  "homepage": "https://github.com/MoreCodeByTR/gitlab-branch-cleaner#readme"
 }
