@@ -1,6 +1,6 @@
 {
   "name": "gitlab-branch-batch-cleaner",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "A local UI for listing and batch deleting GitLab remote branches.",
   "type": "module",
   "bin": {
@@ -10,6 +10,7 @@
     "bin",
     "server",
     "dist",
+    "docs/images",
     "README.md"
   ],
   "scripts": {

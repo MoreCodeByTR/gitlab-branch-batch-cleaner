@@ -2,6 +2,10 @@
 
 本地运行的 GitLab 远程分支清理工具。页面中配置 GitLab Base URL、`PRIVATE-TOKEN` 和 group path 后，可以通过 GitLab API 拉取仓库、查看远程分支、批量选择并删除分支。
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/MoreCodeByTR/gitlab-branch-batch-cleaner/master/docs/images/overview.png" alt="GitLab Branch Batch Cleaner 分支列表与批量删除确认界面" width="100%" />
+</p>
+
 ## 使用
 
 全局安装 npm 包：
