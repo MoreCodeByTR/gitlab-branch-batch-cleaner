@@ -36,5 +36,5 @@ process.on('SIGTERM', () => {
   process.exit(143);
 });
 
-run(process.execPath, ['./bin/gitlab-branch-cleaner.js', '--port', '4178']);
+run(process.execPath, ['./bin/gitlab-branch-batch-cleaner.js', '--port', '4178']);
 run(process.platform === 'win32' ? 'npx.cmd' : 'npx', ['vite', '--host', '127.0.0.1']);

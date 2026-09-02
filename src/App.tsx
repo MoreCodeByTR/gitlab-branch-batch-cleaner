@@ -36,6 +36,7 @@ import type {
   GroupContent
 } from './types';
 
+const STORAGE_KEY = 'gitlab-branch-batch-cleaner.config';
 const LEGACY_STORAGE_KEY = 'gitlab-branch-cleaner.config';
 const STALE_DAYS = 90;
 
@@ -76,7 +77,7 @@ function normalizeClientConfig(value: Partial<AppConfig> = {}): AppConfig {
 
 function readLegacyConfig(): Partial<AppConfig> {
   try {
-    const raw = localStorage.getItem(LEGACY_STORAGE_KEY);
+    const raw = localStorage.getItem(STORAGE_KEY) || localStorage.getItem(LEGACY_STORAGE_KEY);
     return raw ? (JSON.parse(raw) as Partial<AppConfig>) : {};
   } catch {
     return {};
@@ -547,7 +548,7 @@ export default function App() {
 
     try {
       const saved = await saveStoredConfig(next);
-      localStorage.setItem(LEGACY_STORAGE_KEY, JSON.stringify(saved));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
       setConfig(saved);
       setSettingsDraft(saved);
       setSettingsOpen(false);
@@ -1188,7 +1189,7 @@ function ViewFooter({ status }: { status: StatusState }) {
   return (
     <footer className="view-footer">
       <StatusLine status={status} compact />
-      <span className="app-version">gitlab-branch-cleaner v{APP_VERSION}</span>
+      <span className="app-version">gitlab-branch-batch-cleaner v{APP_VERSION}</span>
     </footer>
   );
 }

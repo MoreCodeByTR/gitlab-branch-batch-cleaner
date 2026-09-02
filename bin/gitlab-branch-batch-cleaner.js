@@ -14,10 +14,29 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const packageRoot = path.resolve(__dirname, '..');
 const packageJson = JSON.parse(fs.readFileSync(path.join(packageRoot, 'package.json'), 'utf8'));
-const appHome = path.resolve(process.env.GITLAB_BRANCH_CLEANER_HOME || path.join(os.homedir(), '.gitlab-branch-cleaner'));
-const pidFile = path.resolve(process.env.GITLAB_BRANCH_CLEANER_PID_FILE || path.join(appHome, 'gitlab-branch-cleaner.pid'));
-const logFile = path.resolve(process.env.GITLAB_BRANCH_CLEANER_LOG_FILE || path.join(appHome, 'gitlab-branch-cleaner.log'));
-const updateCheckTimeout = readPositiveInteger(process.env.GITLAB_BRANCH_CLEANER_UPDATE_CHECK_TIMEOUT, 1500);
+const commandName = packageJson.name || 'gitlab-branch-batch-cleaner';
+const appName = 'GitLab Branch Batch Cleaner';
+const startupPrefix = `${appName} is running at `;
+const appHome = path.resolve(
+  process.env.GITLAB_BRANCH_BATCH_CLEANER_HOME ||
+    process.env.GITLAB_BRANCH_CLEANER_HOME ||
+    path.join(os.homedir(), '.gitlab-branch-batch-cleaner')
+);
+const pidFile = path.resolve(
+  process.env.GITLAB_BRANCH_BATCH_CLEANER_PID_FILE ||
+    process.env.GITLAB_BRANCH_CLEANER_PID_FILE ||
+    path.join(appHome, 'gitlab-branch-batch-cleaner.pid')
+);
+const logFile = path.resolve(
+  process.env.GITLAB_BRANCH_BATCH_CLEANER_LOG_FILE ||
+    process.env.GITLAB_BRANCH_CLEANER_LOG_FILE ||
+    path.join(appHome, 'gitlab-branch-batch-cleaner.log')
+);
+const updateCheckTimeout = readPositiveInteger(
+  process.env.GITLAB_BRANCH_BATCH_CLEANER_UPDATE_CHECK_TIMEOUT ||
+    process.env.GITLAB_BRANCH_CLEANER_UPDATE_CHECK_TIMEOUT,
+  1500
+);
 const args = process.argv.slice(2);
 const colorsEnabled = !process.env.NO_COLOR && (process.stdout.isTTY || process.env.FORCE_COLOR);
 const colorCodes = {
@@ -53,23 +72,23 @@ function updateLabel() {
 }
 
 function usage() {
-  console.log(`GitLab Branch Cleaner
+  console.log(`${appName}
 
 Usage:
-  gitlab-branch-cleaner start [--host 127.0.0.1] [--port 4178] [--open]
-  gitlab-branch-cleaner pause
-  gitlab-branch-cleaner stop
-  gitlab-branch-cleaner status
-  gitlab-branch-cleaner --version
-  gitlab-branch-cleaner [--host 127.0.0.1] [--port 4178] [--open]
+  ${commandName} start [--host 127.0.0.1] [--port 4178] [--open]
+  ${commandName} pause
+  ${commandName} stop
+  ${commandName} status
+  ${commandName} --version
+  ${commandName} [--host 127.0.0.1] [--port 4178] [--open]
 
 Environment:
   HOST                         监听地址，默认 127.0.0.1
   PORT                         起始端口，默认 4178
-  GITLAB_BRANCH_CLEANER_UPDATE_CHECK_TIMEOUT  版本检查超时时间，默认 1500ms
-  GITLAB_BRANCH_CLEANER_HOME   PID 和日志目录
-  GITLAB_BRANCH_CLEANER_PID_FILE
-  GITLAB_BRANCH_CLEANER_LOG_FILE`);
+  GITLAB_BRANCH_BATCH_CLEANER_UPDATE_CHECK_TIMEOUT  版本检查超时时间，默认 1500ms
+  GITLAB_BRANCH_BATCH_CLEANER_HOME   PID 和日志目录
+  GITLAB_BRANCH_BATCH_CLEANER_PID_FILE
+  GITLAB_BRANCH_BATCH_CLEANER_LOG_FILE`);
 }
 
 function readPositiveInteger(value, fallback) {
@@ -116,6 +135,7 @@ function printVersion() {
 
 function npmRegistryPackageUrl() {
   const registry =
+    process.env.GITLAB_BRANCH_BATCH_CLEANER_NPM_REGISTRY ||
     process.env.GITLAB_BRANCH_CLEANER_NPM_REGISTRY ||
     process.env.npm_config_registry ||
     process.env.NPM_CONFIG_REGISTRY ||
@@ -125,7 +145,10 @@ function npmRegistryPackageUrl() {
 }
 
 function debugUpdateCheck(error) {
-  if (process.env.GITLAB_BRANCH_CLEANER_DEBUG_UPDATE_CHECK !== '1') {
+  if (
+    process.env.GITLAB_BRANCH_BATCH_CLEANER_DEBUG_UPDATE_CHECK !== '1' &&
+    process.env.GITLAB_BRANCH_CLEANER_DEBUG_UPDATE_CHECK !== '1'
+  ) {
     return;
   }
   console.warn(`版本检查已跳过：${error.message || error}`);
@@ -140,7 +163,7 @@ function requestJson(url, timeout = updateCheckTimeout, redirects = 2) {
       {
         headers: {
           Accept: 'application/vnd.npm.install-v1+json, application/json',
-          'User-Agent': `${packageJson.name || 'gitlab-branch-cleaner'}/${packageJson.version || '0.0.0'}`
+          'User-Agent': `${commandName}/${packageJson.version || '0.0.0'}`
         },
         timeout
       },
@@ -382,8 +405,8 @@ function startupSummary(lines) {
   };
 
   for (const line of lines) {
-    if (line.startsWith('GitLab Branch Cleaner is running at ')) {
-      summary.url = line.slice('GitLab Branch Cleaner is running at '.length).trim();
+    if (line.startsWith(startupPrefix)) {
+      summary.url = line.slice(startupPrefix.length).trim();
     } else {
       summary.other.push(line);
     }
@@ -395,7 +418,7 @@ function startupSummary(lines) {
 function latestStartupLines(lines) {
   let startIndex = -1;
   for (let index = lines.length - 1; index >= 0; index -= 1) {
-    if (lines[index].startsWith('GitLab Branch Cleaner is running at ')) {
+    if (lines[index].startsWith(startupPrefix)) {
       startIndex = index;
       break;
     }
@@ -451,7 +474,7 @@ function printDetails(summary) {
   }
 }
 
-function printRunning(pid, summary, message = 'GitLab Branch Cleaner 正在运行') {
+function printRunning(pid, summary, message = `${appName} 正在运行`) {
   console.log(`${message}，pid ${pid}`);
   printDetails(summary);
 }
@@ -493,7 +516,7 @@ async function startManaged(serverArgs) {
     printRunning(
       previous.pid,
       await runningSummary(previous),
-      'GitLab Branch Cleaner 已在运行'
+      `${appName} 已在运行`
     );
     await printUpdateNotice(updateNoticePromise);
     return;
@@ -530,7 +553,7 @@ async function startManaged(serverArgs) {
   if (!started) {
     await removePidFile();
     const detail = lines.length > 0 ? lines.slice(-6).join('\n') : '未读取到启动日志';
-    throw new Error(childExited ? `GitLab Branch Cleaner 启动失败：\n${detail}` : `GitLab Branch Cleaner 启动超时：\n${detail}`);
+    throw new Error(childExited ? `${appName} 启动失败：\n${detail}` : `${appName} 启动超时：\n${detail}`);
   }
 
   writePidInfo({
@@ -538,7 +561,7 @@ async function startManaged(serverArgs) {
     ...startupInfoFromSummary(summary)
   });
 
-  console.log(`GitLab Branch Cleaner 已启动，pid ${child.pid}`);
+  console.log(`${appName} 已启动，pid ${child.pid}`);
   printDetails(summary);
   await printUpdateNotice(updateNoticePromise);
 }
@@ -546,13 +569,13 @@ async function startManaged(serverArgs) {
 async function stopManaged() {
   const current = readPidInfo();
   if (!current?.pid) {
-    console.log('GitLab Branch Cleaner 未在运行');
+    console.log(`${appName} 未在运行`);
     return;
   }
 
   if (!isRunning(current.pid)) {
     await removePidFile();
-    console.log('GitLab Branch Cleaner 未在运行');
+    console.log(`${appName} 未在运行`);
     return;
   }
 
@@ -562,7 +585,7 @@ async function stopManaged() {
   while (Date.now() - startedAt < 5000) {
     if (!isRunning(current.pid)) {
       await removePidFile();
-      console.log('GitLab Branch Cleaner 已暂停');
+      console.log(`${appName} 已暂停`);
       return;
     }
     await new Promise((resolve) => setTimeout(resolve, 150));
@@ -570,7 +593,7 @@ async function stopManaged() {
 
   process.kill(current.pid, 'SIGKILL');
   await removePidFile();
-  console.log('GitLab Branch Cleaner 已暂停');
+  console.log(`${appName} 已暂停`);
 }
 
 async function statusManaged() {
@@ -583,7 +606,7 @@ async function statusManaged() {
   if (current?.pid) {
     await removePidFile();
   }
-  console.log('GitLab Branch Cleaner 未在运行');
+  console.log(`${appName} 未在运行`);
 }
 
 async function runForeground(optionArgs) {

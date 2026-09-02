@@ -1,4 +1,4 @@
-# GitLab Branch Cleaner
+# GitLab Branch Batch Cleaner
 
 本地运行的 GitLab 远程分支清理工具。页面中配置 GitLab Base URL、`PRIVATE-TOKEN` 和 group path 后，可以通过 GitLab API 拉取仓库、查看远程分支、批量选择并删除分支。
 
@@ -23,10 +23,10 @@ http://127.0.0.1:4178
 查看当前版本：
 
 ```bash
-gitlab-branch-cleaner --version
+gitlab-branch-batch-cleaner --version
 ```
 
-和 `lan-material-hub` 一样，后台启动时会检查 npm latest 版本；如果发现新版本，会在启动输出后提示执行 `npm install -g gitlab-branch-cleaner@latest` 更新。网络失败或超时不会影响本地启动。
+和 `lan-material-hub` 一样，后台启动时会检查 npm latest 版本；如果发现新版本，会在启动输出后提示执行 `npm install -g gitlab-branch-batch-cleaner@latest` 更新。网络失败或超时不会影响本地启动。
 
 开发模式：
 
@@ -49,16 +49,16 @@ npm start -- --port 4180 --open
 后台启动的 PID 和日志默认保存在：
 
 ```text
-~/.gitlab-branch-cleaner/gitlab-branch-cleaner.pid
-~/.gitlab-branch-cleaner/gitlab-branch-cleaner.log
+~/.gitlab-branch-batch-cleaner/gitlab-branch-batch-cleaner.pid
+~/.gitlab-branch-batch-cleaner/gitlab-branch-batch-cleaner.log
 ```
 
 可以通过环境变量改位置：
 
 ```bash
-GITLAB_BRANCH_CLEANER_HOME=/tmp/gitlab-branch-cleaner npm start
-GITLAB_BRANCH_CLEANER_LOG_FILE=/tmp/gitlab-branch-cleaner.log npm start
-GITLAB_BRANCH_CLEANER_UPDATE_CHECK_TIMEOUT=800 npm start
+GITLAB_BRANCH_BATCH_CLEANER_HOME=/tmp/gitlab-branch-batch-cleaner npm start
+GITLAB_BRANCH_BATCH_CLEANER_LOG_FILE=/tmp/gitlab-branch-batch-cleaner.log npm start
+GITLAB_BRANCH_BATCH_CLEANER_UPDATE_CHECK_TIMEOUT=800 npm start
 ```
 
 ## 配置
@@ -66,8 +66,10 @@ GITLAB_BRANCH_CLEANER_UPDATE_CHECK_TIMEOUT=800 npm start
 页面配置通过右上角按钮打开弹窗维护。配置会保存在用户目录，升级或重装 npm 包不会重置：
 
 ```text
-~/.config/gitlab-branch-cleaner/config.json
+~/.config/gitlab-branch-batch-cleaner/config.json
 ```
+
+如果本机已经存在旧版 `~/.config/gitlab-branch-cleaner/config.json`，服务会自动兼容读取。
 
 字段：
 

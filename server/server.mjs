@@ -8,10 +8,14 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const packageRoot = path.resolve(__dirname, '..');
 const distRoot = path.join(packageRoot, 'dist');
+const appName = 'GitLab Branch Batch Cleaner';
+const defaultConfigBase = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config');
 const configRoot =
+  process.env.GITLAB_BRANCH_BATCH_CLEANER_CONFIG_DIR ||
   process.env.GITLAB_BRANCH_CLEANER_CONFIG_DIR ||
-  path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'gitlab-branch-cleaner');
+  path.join(defaultConfigBase, 'gitlab-branch-batch-cleaner');
 const configFile = path.join(configRoot, 'config.json');
+const legacyConfigFile = path.join(defaultConfigBase, 'gitlab-branch-cleaner', 'config.json');
 
 const defaultConfig = {
   baseUrl: 'https://git.17zjh.com',
@@ -42,7 +46,12 @@ async function readStoredConfig() {
     const raw = await fs.readFile(configFile, 'utf8');
     return normalizeConfig(JSON.parse(raw));
   } catch {
-    return { ...defaultConfig };
+    try {
+      const raw = await fs.readFile(legacyConfigFile, 'utf8');
+      return normalizeConfig(JSON.parse(raw));
+    } catch {
+      return { ...defaultConfig };
+    }
   }
 }
 
@@ -525,7 +534,7 @@ export async function startServer({ host = '127.0.0.1', port = 4178, shouldOpen 
   }
 
   const url = `http://${host}:${activePort}`;
-  console.log(`GitLab Branch Cleaner is running at ${url}`);
+  console.log(`${appName} is running at ${url}`);
   if (shouldOpen) {
     openBrowser(url);
   }
