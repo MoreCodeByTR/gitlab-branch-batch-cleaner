@@ -1,0 +1,50 @@
+{
+  "name": "gitlab-branch-cleaner",
+  "version": "0.1.0",
+  "description": "A local UI for listing and batch deleting GitLab remote branches.",
+  "type": "module",
+  "bin": {
+    "gitlab-branch-cleaner": "./bin/gitlab-branch-cleaner.js"
+  },
+  "files": [
+    "bin",
+    "server",
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "dev": "node ./server/dev.mjs",
+    "build": "tsc --noEmit && vite build",
+    "serve": "node ./bin/gitlab-branch-cleaner.js",
+    "start": "node ./bin/gitlab-branch-cleaner.js start",
+    "pause": "node ./bin/gitlab-branch-cleaner.js pause",
+    "stop": "node ./bin/gitlab-branch-cleaner.js stop",
+    "status": "node ./bin/gitlab-branch-cleaner.js status",
+    "preview": "node ./bin/gitlab-branch-cleaner.js --port 4178"
+  },
+  "keywords": [
+    "gitlab",
+    "branch",
+    "cleanup",
+    "vite",
+    "react"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@vitejs/plugin-react": "^4.7.0",
+    "lucide-react": "^0.542.0",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "vite": "^6.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "@types/react": "^19.1.10",
+    "@types/react-dom": "^19.1.7",
+    "typescript": "^5.9.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
