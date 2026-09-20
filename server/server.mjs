@@ -12,15 +12,17 @@ const appName = 'GitLab Branch Batch Cleaner';
 const defaultConfigBase = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config');
 const configRoot =
   process.env.GITLAB_BRANCH_BATCH_CLEANER_CONFIG_DIR ||
-  process.env.GITLAB_BRANCH_CLEANER_CONFIG_DIR ||
   path.join(defaultConfigBase, 'gitlab-branch-batch-cleaner');
 const configFile = path.join(configRoot, 'config.json');
-const legacyConfigFile = path.join(defaultConfigBase, 'gitlab-branch-cleaner', 'config.json');
 
 const defaultConfig = {
   baseUrl: 'https://git.17zjh.com',
   privateToken: '',
-  groupPath: 'ivy_love/front-end'
+  groupPath: 'ivy_love/front-end',
+  selectionRules: {
+    headInDefaultBranch: true,
+    custom: []
+  }
 };
 
 const contentTypes = new Map([
@@ -33,11 +35,36 @@ const contentTypes = new Map([
   ['.ico', 'image/x-icon']
 ]);
 
+function normalizeSelectionRules(value = {}) {
+  const custom = Array.isArray(value.custom)
+    ? value.custom
+        .map((rule, index) => ({
+          id:
+            typeof rule?.id === 'string' && rule.id.trim()
+              ? rule.id.trim()
+              : `custom-${Date.now().toString(36)}-${index}`,
+          name: typeof rule?.name === 'string' && rule.name.trim() ? rule.name.trim() : `自定义规则 ${index + 1}`,
+          pattern: typeof rule?.pattern === 'string' ? rule.pattern.trim() : '',
+          enabled: Boolean(rule?.enabled)
+        }))
+        .filter((rule) => rule.name && rule.pattern)
+    : [];
+
+  return {
+    headInDefaultBranch:
+      typeof value.headInDefaultBranch === 'boolean'
+        ? value.headInDefaultBranch
+        : defaultConfig.selectionRules.headInDefaultBranch,
+    custom
+  };
+}
+
 function normalizeConfig(value = {}) {
   return {
     baseUrl: typeof value.baseUrl === 'string' && value.baseUrl.trim() ? value.baseUrl.trim() : defaultConfig.baseUrl,
     privateToken: typeof value.privateToken === 'string' ? value.privateToken.trim() : '',
-    groupPath: typeof value.groupPath === 'string' && value.groupPath.trim() ? value.groupPath.trim() : defaultConfig.groupPath
+    groupPath: typeof value.groupPath === 'string' && value.groupPath.trim() ? value.groupPath.trim() : defaultConfig.groupPath,
+    selectionRules: normalizeSelectionRules(value.selectionRules)
   };
 }
 
@@ -46,12 +73,7 @@ async function readStoredConfig() {
     const raw = await fs.readFile(configFile, 'utf8');
     return normalizeConfig(JSON.parse(raw));
   } catch {
-    try {
-      const raw = await fs.readFile(legacyConfigFile, 'utf8');
-      return normalizeConfig(JSON.parse(raw));
-    } catch {
-      return { ...defaultConfig };
-    }
+    return { ...defaultConfig };
   }
 }
 

@@ -8,10 +8,12 @@ import {
   FolderGit2,
   GitBranch,
   Loader2,
+  Plus,
   RefreshCw,
   Search,
   Settings2,
   ShieldCheck,
+  Tag,
   Trash2,
   X
 } from 'lucide-react';
@@ -28,6 +30,8 @@ import {
 } from './api';
 import type {
   AppConfig,
+  BranchSelectionCustomRule,
+  BranchSelectionRulesConfig,
   DeleteResult,
   GitLabBranch,
   GitLabGroup,
@@ -36,14 +40,20 @@ import type {
   GroupContent
 } from './types';
 
-const STORAGE_KEY = 'gitlab-branch-batch-cleaner.config';
-const LEGACY_STORAGE_KEY = 'gitlab-branch-cleaner.config';
 const STALE_DAYS = 90;
+const HEAD_IN_DEFAULT_RULE_ID = 'head-in-default-branch';
+const HEAD_IN_DEFAULT_RULE_NAME = '已在主分支';
+
+const defaultSelectionRules: BranchSelectionRulesConfig = {
+  headInDefaultBranch: true,
+  custom: []
+};
 
 const defaultConfig: AppConfig = {
   baseUrl: 'https://git.17zjh.com',
   privateToken: '',
-  groupPath: 'ivy_love/front-end'
+  groupPath: 'ivy_love/front-end',
+  selectionRules: defaultSelectionRules
 };
 const APP_VERSION = packageInfo.version;
 
@@ -57,6 +67,14 @@ interface StatusState {
   text: string;
 }
 
+type BadgeTone = 'neutral' | 'blue' | 'red' | 'green' | 'orange' | 'purple' | 'teal';
+
+interface BranchRuleMatch {
+  id: string;
+  name: string;
+  tone: BadgeTone;
+}
+
 type AppRoute =
   | {
       view: 'group';
@@ -67,21 +85,41 @@ type AppRoute =
       projectPath: string;
     };
 
+function createCustomRule(): BranchSelectionCustomRule {
+  return {
+    id: `rule-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+    name: '自定义规则',
+    pattern: '',
+    enabled: true
+  };
+}
+
+function normalizeSelectionRules(value?: Partial<BranchSelectionRulesConfig>): BranchSelectionRulesConfig {
+  return {
+    headInDefaultBranch:
+      typeof value?.headInDefaultBranch === 'boolean'
+        ? value.headInDefaultBranch
+        : defaultSelectionRules.headInDefaultBranch,
+    custom: Array.isArray(value?.custom)
+      ? value.custom
+          .map((rule, index) => ({
+            id: rule.id?.trim() || `rule-${Date.now().toString(36)}-${index}`,
+            name: rule.name?.trim() || `自定义规则 ${index + 1}`,
+            pattern: rule.pattern?.trim() || '',
+            enabled: Boolean(rule.enabled)
+          }))
+          .filter((rule) => rule.name || rule.pattern)
+      : []
+  };
+}
+
 function normalizeClientConfig(value: Partial<AppConfig> = {}): AppConfig {
   return {
     baseUrl: value.baseUrl?.trim() || defaultConfig.baseUrl,
     privateToken: value.privateToken?.trim() || '',
-    groupPath: value.groupPath?.trim() || defaultConfig.groupPath
+    groupPath: value.groupPath?.trim() || defaultConfig.groupPath,
+    selectionRules: normalizeSelectionRules(value.selectionRules)
   };
-}
-
-function readLegacyConfig(): Partial<AppConfig> {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY) || localStorage.getItem(LEGACY_STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as Partial<AppConfig>) : {};
-  } catch {
-    return {};
-  }
 }
 
 function decodePathSegment(value: string) {
@@ -107,6 +145,22 @@ function groupHref(groupPath: string) {
 
 function projectBranchesHref(projectPath: string) {
   return `${encodedPath(projectPath)}/-/branches`;
+}
+
+function personalAccessTokenUrl(baseUrl: string) {
+  try {
+    const url = new URL(baseUrl.trim() || defaultConfig.baseUrl);
+    url.pathname = `${url.pathname.replace(/\/+$/, '')}/-/user_settings/personal_access_tokens`;
+    url.search = '';
+    url.hash = '';
+    return url.toString();
+  } catch {
+    return `${defaultConfig.baseUrl}/-/user_settings/personal_access_tokens`;
+  }
+}
+
+function firstTokenSetupReloadUrl() {
+  return new URL('/', window.location.origin).toString();
 }
 
 function parseRoute(fallbackGroupPath: string): AppRoute {
@@ -235,6 +289,99 @@ function matchesKeyword(values: Array<string | undefined>, keyword: string) {
   return terms.every((term) => haystack.includes(term) || compactHaystack.includes(normalizeSearchText(term)));
 }
 
+function compileRulePattern(pattern: string) {
+  if (!pattern.trim()) {
+    return null;
+  }
+
+  try {
+    return new RegExp(pattern);
+  } catch {
+    return null;
+  }
+}
+
+function hasInvalidEnabledRule(rules: BranchSelectionRulesConfig) {
+  return rules.custom.some((rule) => rule.enabled && !compileRulePattern(rule.pattern));
+}
+
+function defaultBranchHead(branches: GitLabBranch[]) {
+  return branches.find((item) => item.default)?.commit?.id;
+}
+
+function isSameAsDefaultHead(branch: GitLabBranch, allBranches: GitLabBranch[]) {
+  const defaultHead = defaultBranchHead(allBranches);
+  return Boolean(branch.commit?.id && defaultHead && branch.commit.id === defaultHead);
+}
+
+function isHeadInDefaultBranch(branch: GitLabBranch, allBranches: GitLabBranch[]) {
+  if (branch.default) {
+    return false;
+  }
+
+  if (isSameAsDefaultHead(branch, allBranches)) {
+    return false;
+  }
+
+  return Boolean(branch.merged);
+}
+
+function customRuleTone(index: number): BadgeTone {
+  const tones: BadgeTone[] = ['orange', 'purple', 'teal', 'red'];
+  return tones[index % tones.length];
+}
+
+function branchRuleMatches(branch: GitLabBranch, allBranches: GitLabBranch[], rules: BranchSelectionRulesConfig) {
+  const matches: BranchRuleMatch[] = [];
+
+  if (rules.headInDefaultBranch && isHeadInDefaultBranch(branch, allBranches)) {
+    matches.push({
+      id: HEAD_IN_DEFAULT_RULE_ID,
+      name: HEAD_IN_DEFAULT_RULE_NAME,
+      tone: 'green'
+    });
+  }
+
+  for (const [index, rule] of rules.custom.entries()) {
+    if (!rule.enabled) {
+      continue;
+    }
+
+    const matcher = compileRulePattern(rule.pattern);
+    if (matcher?.test(branch.name)) {
+      matches.push({
+        id: rule.id,
+        name: rule.name,
+        tone: customRuleTone(index)
+      });
+    }
+  }
+
+  return matches;
+}
+
+function buildRuleMatchMap(branches: GitLabBranch[], rules: BranchSelectionRulesConfig) {
+  const map = new Map<string, BranchRuleMatch[]>();
+  for (const branch of branches) {
+    const matches = branchRuleMatches(branch, branches, rules);
+    if (matches.length > 0) {
+      map.set(branch.name, matches);
+    }
+  }
+  return map;
+}
+
+function defaultSelectedBranchNames(branches: GitLabBranch[], rules: BranchSelectionRulesConfig) {
+  const next = new Set<string>();
+  const matchMap = buildRuleMatchMap(branches, rules);
+  for (const branch of branches) {
+    if (canDelete(branch) && matchMap.has(branch.name)) {
+      next.add(branch.name);
+    }
+  }
+  return next;
+}
+
 function initials(...values: Array<string | undefined>) {
   const text = values.find((value) => value?.trim())?.trim();
   return text ? text.slice(0, 1).toUpperCase() : '?';
@@ -244,7 +391,7 @@ function projectGroupPath(project: GitLabProject) {
   return project.namespacePath || project.pathWithNamespace.split('/').slice(0, -1).join('/');
 }
 
-function Badge({ children, tone = 'neutral' }: { children: ReactNode; tone?: 'neutral' | 'blue' | 'red' }) {
+function Badge({ children, tone = 'neutral' }: { children: ReactNode; tone?: BadgeTone }) {
   return <span className={`badge badge-${tone}`}>{children}</span>;
 }
 
@@ -303,13 +450,7 @@ export default function App() {
       setBooting(true);
       try {
         const stored = await getStoredConfig();
-        const legacy = readLegacyConfig();
-        const hasStoredToken = Boolean(stored.privateToken);
-        const initial = normalizeClientConfig(hasStoredToken ? stored : { ...stored, ...legacy });
-
-        if (!hasStoredToken && legacy.privateToken) {
-          await saveStoredConfig(initial).catch(() => {});
-        }
+        const initial = normalizeClientConfig(stored);
 
         if (cancelled) {
           return;
@@ -324,6 +465,8 @@ export default function App() {
           await Promise.allSettled([loadCurrentUser(), loadRoute(parseRoute(initial.groupPath), initial.groupPath, 'replace')]);
         } else {
           syncRoute(groupHref(initial.groupPath), 'replace');
+          setSettingsOpen(true);
+          setSaveStatus({ kind: 'idle', text: '请填写 PRIVATE-TOKEN 后保存' });
           setGroupStatus({ kind: 'idle', text: '配置后自动获取仓库' });
         }
       } catch (error) {
@@ -374,6 +517,12 @@ export default function App() {
   }, [groupContent, groupSearch]);
 
   const sortedBranches = useMemo(() => sortBranches(branches), [branches]);
+  const branchRuleMatchMap = useMemo(
+    () => buildRuleMatchMap(sortedBranches, config.selectionRules),
+    [config.selectionRules, sortedBranches]
+  );
+  const ruleMatchedCount = sortedBranches.filter((branch) => branchRuleMatchMap.has(branch.name)).length;
+  const ruleSelectableCount = sortedBranches.filter((branch) => canDelete(branch) && branchRuleMatchMap.has(branch.name)).length;
   const overviewCount = sortedBranches.filter((branch) => branch.default || branch.protected).length;
   const activeCount = sortedBranches.filter((branch) => branchInTab(branch, 'active')).length;
   const staleCount = sortedBranches.filter((branch) => branchInTab(branch, 'stale')).length;
@@ -535,26 +684,70 @@ export default function App() {
     try {
       const result = await fetchBranches(project.id);
       const sorted = sortBranches(result.branches);
+      const nextSelectedBranches = defaultSelectedBranchNames(sorted, config.selectionRules);
       setBranches(sorted);
-      setBranchStatus({ kind: 'success', text: `已获取 ${sorted.length} 个分支` });
+      setSelectedBranches(nextSelectedBranches);
+      setBranchStatus({
+        kind: 'success',
+        text:
+          nextSelectedBranches.size > 0
+            ? `已获取 ${sorted.length} 个分支 · 规则默认选中 ${nextSelectedBranches.size} 个`
+            : `已获取 ${sorted.length} 个分支`
+      });
     } catch (error) {
       setBranchStatus({ kind: 'error', text: error instanceof Error ? error.message : '获取分支失败' });
     }
   }
 
   async function saveSettings() {
+    if (!settingsDraft.baseUrl.trim()) {
+      setSaveStatus({ kind: 'error', text: '请填写 Base URL' });
+      return;
+    }
+
+    if (!settingsDraft.privateToken.trim()) {
+      setSaveStatus({ kind: 'error', text: '请填写 PRIVATE-TOKEN' });
+      return;
+    }
+
     const next = normalizeClientConfig(settingsDraft);
+    const isFirstTokenSetup = !config.privateToken && Boolean(next.privateToken);
+    if (hasInvalidEnabledRule(next.selectionRules)) {
+      setSaveStatus({ kind: 'error', text: '请修正启用中的无效正则' });
+      return;
+    }
+
+    const shouldReloadConnection =
+      next.baseUrl !== config.baseUrl || next.privateToken !== config.privateToken || next.groupPath !== config.groupPath;
     setSaveStatus({ kind: 'loading', text: '正在保存' });
 
     try {
       const saved = await saveStoredConfig(next);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
       setConfig(saved);
       setSettingsDraft(saved);
       setSettingsOpen(false);
       setSaveStatus({ kind: 'success', text: '已保存' });
-      setCurrentGroupPath(saved.groupPath);
-      await Promise.allSettled([loadCurrentUser(), loadGroup(saved.groupPath, 'replace')]);
+
+      if (isFirstTokenSetup) {
+        window.location.replace(firstTokenSetupReloadUrl());
+        return;
+      }
+
+      if (shouldReloadConnection) {
+        setCurrentGroupPath(saved.groupPath);
+        await loadCurrentUser();
+        await loadRoute(parseRoute(saved.groupPath), saved.groupPath, 'replace');
+        return;
+      }
+
+      if (viewMode === 'branches' && branches.length > 0) {
+        const nextSelectedBranches = defaultSelectedBranchNames(branches, saved.selectionRules);
+        setSelectedBranches(nextSelectedBranches);
+        setBranchStatus({
+          kind: 'success',
+          text: `已应用默认选中规则 · 选中 ${nextSelectedBranches.size} 个分支`
+        });
+      }
     } catch (error) {
       setSaveStatus({ kind: 'error', text: error instanceof Error ? error.message : '保存失败' });
     }
@@ -682,6 +875,12 @@ export default function App() {
     loadGroup(currentGroupPath, false);
   }
 
+  function openSettingsModal() {
+    setSettingsDraft(config);
+    setSaveStatus(config.privateToken ? { kind: 'idle', text: '' } : { kind: 'idle', text: '请填写 PRIVATE-TOKEN 后保存' });
+    setSettingsOpen(true);
+  }
+
   return (
     <div className="app-shell">
       <header className="app-header">
@@ -747,10 +946,7 @@ export default function App() {
             className="icon-button"
             type="button"
             title="配置"
-            onClick={() => {
-              setSettingsDraft(config);
-              setSettingsOpen(true);
-            }}
+            onClick={openSettingsModal}
           >
             <Settings2 size={17} />
           </button>
@@ -815,7 +1011,7 @@ export default function App() {
             onSearch={setGroupSearch}
             onOpenGroup={loadGroup}
             onOpenProject={openProject}
-            onSettings={() => setSettingsOpen(true)}
+            onSettings={openSettingsModal}
           />
         ) : (
           <BranchList
@@ -825,9 +1021,12 @@ export default function App() {
             branchTab={branchTab}
             branchTabs={branchTabs}
             filteredBranches={filteredBranches}
+            branchRuleMatchMap={branchRuleMatchMap}
             selectedBranchObjects={selectedBranchObjects}
             allVisibleSelected={allVisibleSelected}
             deletableCount={deletableBranches.length}
+            ruleMatchedCount={ruleMatchedCount}
+            ruleSelectableCount={ruleSelectableCount}
             onSearch={setBranchSearch}
             onTab={setBranchTab}
             onRefresh={() => loadBranches()}
@@ -835,6 +1034,7 @@ export default function App() {
             onToggleBranch={toggleBranch}
             onCopy={copyText}
             onDelete={openDeleteModal}
+            onSettings={openSettingsModal}
           />
         )}
       </main>
@@ -979,16 +1179,20 @@ function BranchList({
   branchTab,
   branchTabs,
   filteredBranches,
+  branchRuleMatchMap,
   selectedBranchObjects,
   allVisibleSelected,
   deletableCount,
+  ruleMatchedCount,
+  ruleSelectableCount,
   onSearch,
   onTab,
   onRefresh,
   onToggleAll,
   onToggleBranch,
   onCopy,
-  onDelete
+  onDelete,
+  onSettings
 }: {
   branchSearch: string;
   branchStatus: StatusState;
@@ -996,9 +1200,12 @@ function BranchList({
   branchTab: BranchTab;
   branchTabs: Array<{ key: BranchTab; label: string; count: number }>;
   filteredBranches: GitLabBranch[];
+  branchRuleMatchMap: Map<string, BranchRuleMatch[]>;
   selectedBranchObjects: GitLabBranch[];
   allVisibleSelected: boolean;
   deletableCount: number;
+  ruleMatchedCount: number;
+  ruleSelectableCount: number;
   onSearch: (value: string) => void;
   onTab: (tab: BranchTab) => void;
   onRefresh: () => void;
@@ -1006,6 +1213,7 @@ function BranchList({
   onToggleBranch: (branch: GitLabBranch, checked: boolean) => void;
   onCopy: (text: string) => void;
   onDelete: (branches: GitLabBranch[]) => void;
+  onSettings: () => void;
 }) {
   const emptyText = branchSearch.trim() ? '没有匹配结果' : '暂无分支';
 
@@ -1053,6 +1261,15 @@ function BranchList({
           />
           <span>全选当前列表</span>
         </label>
+        <div className="selection-rule-summary">
+          <Tag size={14} />
+          <span>
+            默认选中规则命中 {ruleMatchedCount} 个，可选 {ruleSelectableCount} 个
+          </span>
+          <button className="text-button" type="button" onClick={onSettings}>
+            管理规则
+          </button>
+        </div>
       </div>
 
       <div className="branch-list">
@@ -1062,6 +1279,7 @@ function BranchList({
           <BranchRow
             key={branch.name}
             branch={branch}
+            ruleMatches={branchRuleMatchMap.get(branch.name) || []}
             checked={selectedBranchObjects.some((item) => item.name === branch.name)}
             onToggle={(checked) => onToggleBranch(branch, checked)}
             onCopy={() => onCopy(branch.name)}
@@ -1077,12 +1295,14 @@ function BranchList({
 
 function BranchRow({
   branch,
+  ruleMatches,
   checked,
   onToggle,
   onCopy,
   onDelete
 }: {
   branch: GitLabBranch;
+  ruleMatches: BranchRuleMatch[];
   checked: boolean;
   onToggle: (checked: boolean) => void;
   onCopy: () => void;
@@ -1115,6 +1335,12 @@ function BranchRow({
               protected
             </Badge>
           )}
+          {ruleMatches.map((rule) => (
+            <Badge tone={rule.tone} key={rule.id}>
+              <Tag size={12} />
+              {rule.name}
+            </Badge>
+          ))}
         </div>
         <div className="commit-line">
           {branch.commit?.webUrl ? (
@@ -1216,12 +1442,37 @@ function SettingsModal({
   onClose: () => void;
   onSave: () => void;
 }) {
+  const rules = config.selectionRules;
+  const invalidRuleIds = new Set(
+    rules.custom.filter((rule) => rule.enabled && !compileRulePattern(rule.pattern)).map((rule) => rule.id)
+  );
+  const needsToken = !config.privateToken.trim();
+  const tokenUrl = personalAccessTokenUrl(config.baseUrl);
+  const status = invalidRuleIds.size > 0 ? { kind: 'error' as const, text: '请修正启用中的无效正则' } : saveStatus;
+
+  function updateRules(selectionRules: BranchSelectionRulesConfig) {
+    onChange({
+      ...config,
+      selectionRules
+    });
+  }
+
+  function updateCustomRule(id: string, patch: Partial<BranchSelectionCustomRule>) {
+    updateRules({
+      ...rules,
+      custom: rules.custom.map((rule) => (rule.id === id ? { ...rule, ...patch } : rule))
+    });
+  }
+
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true">
       <div className="modal settings-modal">
         <div className="modal-header">
           <div>
-            <h2>配置</h2>
+            <h2>
+              配置
+              {needsToken && <span className="modal-title-hint">请填写 PRIVATE-TOKEN</span>}
+            </h2>
             <p>GitLab API</p>
           </div>
           <button className="icon-button" type="button" title="关闭" onClick={onClose}>
@@ -1230,21 +1481,30 @@ function SettingsModal({
         </div>
         <div className="settings-grid">
           <label>
-            <span>Base URL</span>
+            <span>
+              Base URL <strong className="required-mark">*</strong>
+            </span>
             <input
+              required
               value={config.baseUrl}
               onChange={(event) => onChange({ ...config, baseUrl: event.target.value })}
               placeholder="https://git.17zjh.com"
             />
           </label>
           <label>
-            <span>PRIVATE-TOKEN</span>
+            <span>
+              PRIVATE-TOKEN <strong className="required-mark">*</strong>
+            </span>
             <input
+              required
               type="password"
               value={config.privateToken}
               onChange={(event) => onChange({ ...config, privateToken: event.target.value })}
               placeholder="glpat-..."
             />
+            <a className="token-link" href={tokenUrl} target="_blank" rel="noreferrer">
+              前往 GitLab 生成 PRIVATE-TOKEN
+            </a>
           </label>
           <label>
             <span>Group Path</span>
@@ -1254,13 +1514,94 @@ function SettingsModal({
               placeholder="ivy_love/front-end"
             />
           </label>
+          <section className="settings-section">
+            <div className="settings-section-head">
+              <strong>默认选中规则</strong>
+              <button
+                className="ghost-button compact-button"
+                type="button"
+                onClick={() =>
+                  updateRules({
+                    ...rules,
+                    custom: [...rules.custom, createCustomRule()]
+                  })
+                }
+              >
+                <Plus size={15} />
+                新增规则
+              </button>
+            </div>
+            <label className="setting-option">
+              <input
+                type="checkbox"
+                checked={rules.headInDefaultBranch}
+                onChange={(event) =>
+                  updateRules({
+                    ...rules,
+                    headInDefaultBranch: event.target.checked
+                  })
+                }
+              />
+              <span className="setting-option-text">{HEAD_IN_DEFAULT_RULE_NAME}</span>
+            </label>
+            {rules.custom.length > 0 && (
+              <div className="custom-rule-list">
+                {rules.custom.map((rule) => (
+                  <div className="custom-rule-row" key={rule.id}>
+                    <label className="rule-enabled">
+                      <input
+                        type="checkbox"
+                        checked={rule.enabled}
+                        onChange={(event) => updateCustomRule(rule.id, { enabled: event.target.checked })}
+                      />
+                    </label>
+                    <label>
+                      <span>规则名</span>
+                      <input
+                        value={rule.name}
+                        onChange={(event) => updateCustomRule(rule.id, { name: event.target.value })}
+                        placeholder="已合并特性分支"
+                      />
+                    </label>
+                    <label>
+                      <span>正则</span>
+                      <input
+                        value={rule.pattern}
+                        onChange={(event) => updateCustomRule(rule.id, { pattern: event.target.value })}
+                        placeholder="^(feat|fix)/"
+                      />
+                    </label>
+                    <button
+                      className="icon-button"
+                      type="button"
+                      title="删除规则"
+                      onClick={() =>
+                        updateRules({
+                          ...rules,
+                          custom: rules.custom.filter((item) => item.id !== rule.id)
+                        })
+                      }
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                    {invalidRuleIds.has(rule.id) && <span className="rule-error">无效正则</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
         </div>
         <div className="modal-actions">
-          <StatusLine status={saveStatus} compact />
+          <StatusLine status={status} compact />
           <button className="ghost-button" type="button" onClick={onClose}>
             取消
           </button>
-          <button className="primary-button" type="button" onClick={onSave} disabled={saveStatus.kind === 'loading'}>
+          <button
+            className="primary-button"
+            type="button"
+            onClick={onSave}
+            disabled={saveStatus.kind === 'loading' || invalidRuleIds.size > 0}
+          >
             {saveStatus.kind === 'loading' ? <Loader2 className="spin" size={16} /> : <CheckCircle2 size={16} />}
             保存
           </button>

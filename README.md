@@ -81,13 +81,18 @@ GITLAB_BRANCH_BATCH_CLEANER_UPDATE_CHECK_TIMEOUT=800 gitlab-branch-batch-cleaner
 ~/.config/gitlab-branch-batch-cleaner/config.json
 ```
 
-如果本机已经存在旧版 `~/.config/gitlab-branch-cleaner/config.json`，服务会自动兼容读取。
+如果没有配置 `PRIVATE-TOKEN`，进入页面后会自动打开配置弹窗，并提示填写 token。弹窗中会按当前 `Base URL` 拼接 Personal Access Tokens 页面，例如：
+
+```text
+https://git.17zjh.com/-/user_settings/personal_access_tokens
+```
 
 字段：
 
-- `Base URL`：例如 `https://git.17zjh.com`
-- `PRIVATE-TOKEN`：GitLab Personal Access Token
+- `Base URL`：必填，例如 `https://git.17zjh.com`
+- `PRIVATE-TOKEN`：必填，GitLab Personal Access Token
 - `Group Path`：例如 `ivy_love/front-end`
+- `默认选中规则`：可开启“已在主分支”，也可维护自定义正则规则；自定义规则包含启用状态、规则名和分支名正则。
 
 项目列表使用 GitLab API，并处理分页：
 
@@ -103,6 +108,8 @@ GITLAB_BRANCH_BATCH_CLEANER_UPDATE_CHECK_TIMEOUT=800 gitlab-branch-batch-cleaner
 页面底部展示当前列表统计和 npm 包版本号。
 
 分支列表中的时间只展示相对时间，例如分钟、小时、天、周、月、年，不展示具体日期。分支名可点击打开 GitLab 分支主页；复制分支名后页面顶部会出现提示。
+
+分支列表拉取完成后，会按启用的默认选中规则自动勾选可删除分支。“已在主分支”会排除与默认分支 HEAD 完全相同的分支。命中的分支会显示规则名称 tag；默认分支和受保护分支即使命中规则，也不会被自动勾选或手动勾选。
 
 ## 页面链接
 
@@ -124,5 +131,6 @@ http://127.0.0.1:4178/ivy_love/front-end/ivy-admin/-/branches
 
 - 默认分支不会进入可删除选择。
 - 受保护分支不会进入可删除选择。
+- 默认选中规则只负责预勾选，删除前仍需要二次确认。
 - 删除前需要在确认弹窗输入 `DELETE`。
 - 删除请求使用 GitLab API：`DELETE /api/v4/projects/:id/repository/branches/:branch`。

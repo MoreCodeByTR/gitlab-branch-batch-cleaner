@@ -2,6 +2,19 @@ export interface AppConfig {
   baseUrl: string;
   privateToken: string;
   groupPath: string;
+  selectionRules: BranchSelectionRulesConfig;
+}
+
+export interface BranchSelectionRulesConfig {
+  headInDefaultBranch: boolean;
+  custom: BranchSelectionCustomRule[];
+}
+
+export interface BranchSelectionCustomRule {
+  id: string;
+  name: string;
+  pattern: string;
+  enabled: boolean;
 }
 
 export interface GitLabUser {
