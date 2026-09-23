@@ -92,7 +92,7 @@ https://git.17zjh.com/-/user_settings/personal_access_tokens
 - `Base URL`：必填，例如 `https://git.17zjh.com`
 - `PRIVATE-TOKEN`：必填，GitLab Personal Access Token
 - `Group Path`：例如 `ivy_love/front-end`
-- `默认选中规则`：可开启“已在主分支”，也可维护自定义正则规则；自定义规则包含启用状态、规则名和分支名正则。
+- `默认选中规则`：可开启“已合并到默认分支”，也可维护自定义正则规则；自定义规则包含启用状态、规则名和分支名正则。
 
 项目列表使用 GitLab API，并处理分页：
 
@@ -109,7 +109,7 @@ https://git.17zjh.com/-/user_settings/personal_access_tokens
 
 分支列表中的时间只展示相对时间，例如分钟、小时、天、周、月、年，不展示具体日期。分支名可点击打开 GitLab 分支主页；复制分支名后页面顶部会出现提示。
 
-分支列表拉取完成后，会按启用的默认选中规则自动勾选可删除分支。“已在主分支”会排除与默认分支 HEAD 完全相同的分支。命中的分支会显示规则名称 tag；默认分支和受保护分支即使命中规则，也不会被自动勾选或手动勾选。
+分支列表拉取完成后，会按启用的默认选中规则自动勾选可删除分支。“已合并到默认分支”会先使用 GitLab Branches API 的 `merged` 字段；如果该字段为 false，会批量拉取 `target_branch = 默认分支`、`state = merged` 的 MR，并在本地匹配 `source_branch = 当前分支` 且 MR head sha 等于当前分支 commit id。该规则会排除与默认分支 HEAD 完全相同的分支。命中的分支会显示规则名称 tag；默认分支不会被自动勾选或手动勾选；受保护分支只有命中“已合并到默认分支”时才允许勾选。
 
 ## 页面链接
 
@@ -130,7 +130,7 @@ http://127.0.0.1:4178/ivy_love/front-end/ivy-admin/-/branches
 ## 删除规则
 
 - 默认分支不会进入可删除选择。
-- 受保护分支不会进入可删除选择。
+- 受保护分支默认不会进入可删除选择；如果已经合并到默认分支，则允许选择并提交删除。
 - 默认选中规则只负责预勾选，删除前仍需要二次确认。
 - 删除前需要在确认弹窗输入 `DELETE`。
 - 删除请求使用 GitLab API：`DELETE /api/v4/projects/:id/repository/branches/:branch`。

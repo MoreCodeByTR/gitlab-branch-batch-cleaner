@@ -293,12 +293,18 @@ function normalizeCommit(commit, baseUrl) {
   };
 }
 
-function normalizeBranch(branch, baseUrl) {
+function normalizeBranch(branch, baseUrl, mergeStatus = {}) {
+  const merged = Boolean(branch.merged);
+  const mergedByMergeRequest = Boolean(mergeStatus.mergedByMergeRequest);
+  const mergedIntoDefault = Boolean(mergeStatus.mergedIntoDefault ?? (merged || mergedByMergeRequest));
+
   return {
     name: branch.name,
     protected: Boolean(branch.protected),
     default: Boolean(branch.default),
-    merged: Boolean(branch.merged),
+    merged,
+    mergedByMergeRequest,
+    mergedIntoDefault,
     canPush: branch.can_push,
     webUrl: absoluteGitLabUrl(baseUrl, branch.web_url ?? branch.webUrl),
     commit: normalizeCommit(branch.commit, baseUrl)
@@ -372,8 +378,109 @@ async function listBranches(payload) {
     options,
     `/api/v4/projects/${encodeProjectId(payload.projectId)}/repository/branches`
   );
+  const mergeStatus = await buildMergeStatusMap(options, payload.projectId, branches);
 
-  return { branches: branches.map((branch) => normalizeBranch(branch, options.baseUrl)) };
+  return { branches: branches.map((branch) => normalizeBranch(branch, options.baseUrl, mergeStatus.get(branch.name))) };
+}
+
+function getDefaultBranch(branches) {
+  return branches.find((item) => item.default);
+}
+
+function isSameAsDefaultBranchHead(branch, defaultBranch) {
+  return Boolean(branch.commit?.id && defaultBranch?.commit?.id && branch.commit.id === defaultBranch.commit.id);
+}
+
+function mergeRequestHeadSha(mergeRequest) {
+  return mergeRequest.sha || mergeRequest.diff_refs?.head_sha;
+}
+
+function mergeRequestIndexKey(sourceBranch, headSha) {
+  return `${sourceBranch}\n${headSha}`;
+}
+
+async function fetchMergedMergeRequestIndex(options, projectId, defaultBranch, branches) {
+  const candidateKeys = new Set(
+    branches
+      .filter((branch) => branch.commit?.id && !branch.default && !branch.merged && !isSameAsDefaultBranchHead(branch, defaultBranch))
+      .map((branch) => mergeRequestIndexKey(branch.name, branch.commit.id))
+  );
+
+  if (!defaultBranch || candidateKeys.size === 0) {
+    return new Set();
+  }
+
+  try {
+    const mergeRequests = await fetchPaginated(options, `/api/v4/projects/${encodeProjectId(projectId)}/merge_requests`, {
+      scope: 'all',
+      state: 'merged',
+      target_branch: defaultBranch.name,
+      order_by: 'updated_at',
+      sort: 'desc'
+    });
+
+    const mergedKeys = new Set();
+    for (const mergeRequest of mergeRequests) {
+      const headSha = mergeRequestHeadSha(mergeRequest);
+      if (!mergeRequest.source_branch || !headSha) {
+        continue;
+      }
+      const key = mergeRequestIndexKey(mergeRequest.source_branch, headSha);
+      if (candidateKeys.has(key)) {
+        mergedKeys.add(key);
+      }
+    }
+
+    return mergedKeys;
+  } catch {
+    return new Set();
+  }
+}
+
+function mergedIntoDefaultBranch(branch, defaultBranch, mergedMergeRequestKeys = new Set()) {
+  if (!defaultBranch || branch.default || isSameAsDefaultBranchHead(branch, defaultBranch)) {
+    return {
+      mergedByMergeRequest: false,
+      mergedIntoDefault: false
+    };
+  }
+
+  if (branch.merged) {
+    return {
+      mergedByMergeRequest: false,
+      mergedIntoDefault: true
+    };
+  }
+
+  const mergedByMergeRequest = Boolean(
+    branch.commit?.id && mergedMergeRequestKeys.has(mergeRequestIndexKey(branch.name, branch.commit.id))
+  );
+  return {
+    mergedByMergeRequest,
+    mergedIntoDefault: mergedByMergeRequest
+  };
+}
+
+async function buildMergeStatusMap(options, projectId, branches) {
+  const defaultBranch = getDefaultBranch(branches);
+  const mergedMergeRequestKeys = await fetchMergedMergeRequestIndex(options, projectId, defaultBranch, branches);
+  const entries = branches.map((branch) => [
+    branch.name,
+    mergedIntoDefaultBranch(branch, defaultBranch, mergedMergeRequestKeys)
+  ]);
+  return new Map(entries);
+}
+
+async function canDeleteProtectedBranch(options, projectId, branch) {
+  if (!branch.protected) {
+    return true;
+  }
+
+  const branches = await fetchPaginated(options, `/api/v4/projects/${encodeProjectId(projectId)}/repository/branches`);
+  const defaultBranch = getDefaultBranch(branches);
+  const mergedMergeRequestKeys = await fetchMergedMergeRequestIndex(options, projectId, defaultBranch, [branch]);
+  const mergeStatus = mergedIntoDefaultBranch(branch, defaultBranch, mergedMergeRequestKeys);
+  return mergeStatus.mergedIntoDefault;
 }
 
 async function removeBranch(payload) {
@@ -392,8 +499,8 @@ async function removeBranch(payload) {
     throw error;
   }
 
-  if (branch.protected) {
-    const error = new Error('受保护分支不允许删除');
+  if (branch.protected && !(await canDeleteProtectedBranch(options, payload.projectId, branch))) {
+    const error = new Error('受保护分支未合并到默认分支，不允许删除');
     error.status = 400;
     throw error;
   }

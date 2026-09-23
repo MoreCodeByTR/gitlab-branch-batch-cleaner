@@ -41,8 +41,8 @@ import type {
 } from './types';
 
 const STALE_DAYS = 90;
-const HEAD_IN_DEFAULT_RULE_ID = 'head-in-default-branch';
-const HEAD_IN_DEFAULT_RULE_NAME = '已在主分支';
+const MERGED_INTO_DEFAULT_RULE_ID = 'merged-into-default-branch';
+const MERGED_INTO_DEFAULT_RULE_NAME = '已合入主分支';
 
 const defaultSelectionRules: BranchSelectionRulesConfig = {
   headInDefaultBranch: true,
@@ -246,8 +246,16 @@ function sortBranches(branches: GitLabBranch[]) {
   });
 }
 
-function canDelete(branch: GitLabBranch) {
-  return !branch.default && !branch.protected;
+function canDelete(branch: GitLabBranch, allBranches: GitLabBranch[] = []) {
+  if (branch.default) {
+    return false;
+  }
+
+  if (!branch.protected) {
+    return true;
+  }
+
+  return isMergedIntoDefaultBranch(branch, allBranches);
 }
 
 function isStale(branch: GitLabBranch) {
@@ -314,7 +322,7 @@ function isSameAsDefaultHead(branch: GitLabBranch, allBranches: GitLabBranch[]) 
   return Boolean(branch.commit?.id && defaultHead && branch.commit.id === defaultHead);
 }
 
-function isHeadInDefaultBranch(branch: GitLabBranch, allBranches: GitLabBranch[]) {
+function isMergedIntoDefaultBranch(branch: GitLabBranch, allBranches: GitLabBranch[]) {
   if (branch.default) {
     return false;
   }
@@ -323,7 +331,7 @@ function isHeadInDefaultBranch(branch: GitLabBranch, allBranches: GitLabBranch[]
     return false;
   }
 
-  return Boolean(branch.merged);
+  return Boolean(branch.mergedIntoDefault ?? branch.merged);
 }
 
 function customRuleTone(index: number): BadgeTone {
@@ -334,10 +342,10 @@ function customRuleTone(index: number): BadgeTone {
 function branchRuleMatches(branch: GitLabBranch, allBranches: GitLabBranch[], rules: BranchSelectionRulesConfig) {
   const matches: BranchRuleMatch[] = [];
 
-  if (rules.headInDefaultBranch && isHeadInDefaultBranch(branch, allBranches)) {
+  if (rules.headInDefaultBranch && isMergedIntoDefaultBranch(branch, allBranches)) {
     matches.push({
-      id: HEAD_IN_DEFAULT_RULE_ID,
-      name: HEAD_IN_DEFAULT_RULE_NAME,
+      id: MERGED_INTO_DEFAULT_RULE_ID,
+      name: MERGED_INTO_DEFAULT_RULE_NAME,
       tone: 'green'
     });
   }
@@ -375,7 +383,7 @@ function defaultSelectedBranchNames(branches: GitLabBranch[], rules: BranchSelec
   const next = new Set<string>();
   const matchMap = buildRuleMatchMap(branches, rules);
   for (const branch of branches) {
-    if (canDelete(branch) && matchMap.has(branch.name)) {
+    if (canDelete(branch, branches) && matchMap.has(branch.name)) {
       next.add(branch.name);
     }
   }
@@ -521,8 +529,14 @@ export default function App() {
     () => buildRuleMatchMap(sortedBranches, config.selectionRules),
     [config.selectionRules, sortedBranches]
   );
+  const selectableBranchNames = useMemo(
+    () => new Set(sortedBranches.filter((branch) => canDelete(branch, sortedBranches)).map((branch) => branch.name)),
+    [sortedBranches]
+  );
   const ruleMatchedCount = sortedBranches.filter((branch) => branchRuleMatchMap.has(branch.name)).length;
-  const ruleSelectableCount = sortedBranches.filter((branch) => canDelete(branch) && branchRuleMatchMap.has(branch.name)).length;
+  const ruleSelectableCount = sortedBranches.filter(
+    (branch) => selectableBranchNames.has(branch.name) && branchRuleMatchMap.has(branch.name)
+  ).length;
   const overviewCount = sortedBranches.filter((branch) => branch.default || branch.protected).length;
   const activeCount = sortedBranches.filter((branch) => branchInTab(branch, 'active')).length;
   const staleCount = sortedBranches.filter((branch) => branchInTab(branch, 'stale')).length;
@@ -538,13 +552,13 @@ export default function App() {
     return tabbed.filter((branch) => matchesKeyword([branch.name], branchSearch));
   }, [branchSearch, branchTab, sortedBranches]);
 
-  const deletableBranches = filteredBranches.filter(canDelete);
+  const deletableBranches = filteredBranches.filter((branch) => selectableBranchNames.has(branch.name));
   const allVisibleSelected =
     deletableBranches.length > 0 && deletableBranches.every((branch) => selectedBranches.has(branch.name));
 
   const selectedBranchObjects = useMemo(
-    () => branches.filter((branch) => selectedBranches.has(branch.name) && canDelete(branch)),
-    [branches, selectedBranches]
+    () => branches.filter((branch) => selectedBranches.has(branch.name) && selectableBranchNames.has(branch.name)),
+    [branches, selectableBranchNames, selectedBranches]
   );
 
   const groupFooterStatus = useMemo<StatusState>(() => {
@@ -768,7 +782,7 @@ export default function App() {
   }
 
   function toggleBranch(branch: GitLabBranch, checked: boolean) {
-    if (!canDelete(branch)) {
+    if (!selectableBranchNames.has(branch.name)) {
       return;
     }
 
@@ -806,7 +820,7 @@ export default function App() {
   }
 
   function openDeleteModal(items: GitLabBranch[]) {
-    setDeleteQueue(items.filter(canDelete));
+    setDeleteQueue(items.filter((branch) => selectableBranchNames.has(branch.name)));
     setConfirmText('');
     setDeleteResults([]);
   }
@@ -1022,6 +1036,7 @@ export default function App() {
             branchTabs={branchTabs}
             filteredBranches={filteredBranches}
             branchRuleMatchMap={branchRuleMatchMap}
+            selectableBranchNames={selectableBranchNames}
             selectedBranchObjects={selectedBranchObjects}
             allVisibleSelected={allVisibleSelected}
             deletableCount={deletableBranches.length}
@@ -1180,6 +1195,7 @@ function BranchList({
   branchTabs,
   filteredBranches,
   branchRuleMatchMap,
+  selectableBranchNames,
   selectedBranchObjects,
   allVisibleSelected,
   deletableCount,
@@ -1201,6 +1217,7 @@ function BranchList({
   branchTabs: Array<{ key: BranchTab; label: string; count: number }>;
   filteredBranches: GitLabBranch[];
   branchRuleMatchMap: Map<string, BranchRuleMatch[]>;
+  selectableBranchNames: Set<string>;
   selectedBranchObjects: GitLabBranch[];
   allVisibleSelected: boolean;
   deletableCount: number;
@@ -1280,6 +1297,7 @@ function BranchList({
             key={branch.name}
             branch={branch}
             ruleMatches={branchRuleMatchMap.get(branch.name) || []}
+            selectable={selectableBranchNames.has(branch.name)}
             checked={selectedBranchObjects.some((item) => item.name === branch.name)}
             onToggle={(checked) => onToggleBranch(branch, checked)}
             onCopy={() => onCopy(branch.name)}
@@ -1296,6 +1314,7 @@ function BranchList({
 function BranchRow({
   branch,
   ruleMatches,
+  selectable,
   checked,
   onToggle,
   onCopy,
@@ -1303,13 +1322,14 @@ function BranchRow({
 }: {
   branch: GitLabBranch;
   ruleMatches: BranchRuleMatch[];
+  selectable: boolean;
   checked: boolean;
   onToggle: (checked: boolean) => void;
   onCopy: () => void;
   onDelete: () => void;
 }) {
   const dateValue = branch.commit?.committedDate || branch.commit?.createdAt;
-  const disabled = !canDelete(branch);
+  const disabled = !selectable;
 
   return (
     <div className={`branch-row ${checked ? 'selected' : ''} ${disabled ? 'locked' : ''}`}>
@@ -1542,7 +1562,7 @@ function SettingsModal({
                   })
                 }
               />
-              <span className="setting-option-text">{HEAD_IN_DEFAULT_RULE_NAME}</span>
+              <span className="setting-option-text">{MERGED_INTO_DEFAULT_RULE_NAME}</span>
             </label>
             {rules.custom.length > 0 && (
               <div className="custom-rule-list">

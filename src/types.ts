@@ -65,6 +65,8 @@ export interface GitLabBranch {
   protected: boolean;
   default: boolean;
   merged?: boolean;
+  mergedByMergeRequest?: boolean;
+  mergedIntoDefault?: boolean;
   canPush?: boolean;
   webUrl?: string;
   commit?: GitLabCommit;
